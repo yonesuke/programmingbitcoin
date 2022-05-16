@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+from src.helper import hash160, encode_base58_checksum
 
 class FieldElement:
     def __init__(self, num, prime) -> None:
@@ -167,6 +168,20 @@ class S256Point(Point):
         else:
             return b"\x04" + self.x.num.to_bytes(32, "big") + self.y.num.to_bytes(32, "big")
 
+    def hash160(self, compressed = True) -> bytes:
+        return hash160(self.sec(compressed))
+
+    def address(self, compressed = True, testnet = False) -> str:
+        """
+        return address string
+        """
+        h160 = self.hash160(compressed)
+        if testnet:
+            prefix = b"\x6f"
+        else:
+            prefix = b"\x00"
+        return encode_base58_checksum(prefix + h160)
+
     @classmethod
     def parse(self, sec_bin) -> object:
         """
@@ -204,8 +219,18 @@ class Signature:
     def __repr__(self) -> str:
         return "Signature({:x}, {:x})".format(self.r, self.s)
 
-    def der(self) -> str:
-        return 0
+    def der(self) -> bytes:
+        rbin = self.r.to_bytes(32, byteorder = "big")
+        rbin = rbin.lstrip(b"\x00") # 先頭のnullバイトをすべて取り除く
+        if rbin[0] & 0x80:
+            rbin = b"\x00" + rbin
+        result = bytes([2, len(rbin)]) + rbin
+        sbin = self.s.to_bytes(32, byteorder = "big")
+        sbin = sbin.lstrip(b"\x00") # 先頭のnullバイトをすべて取り除く
+        if sbin[0] & 0x80:
+            sbin = b"\x00" + sbin
+        result += bytes([2, len(sbin)]) + sbin
+        return bytes([0x30, len(result)]) + result
 
 class PrivateKey:
     def __init__(self, secret) -> None:
@@ -243,3 +268,15 @@ class PrivateKey:
                 return candidate
             k = hmac.new(k, v + b'\x00', s256).digest()
             v = hmac.new(k, v, s256).digest()
+
+    def wif(self, compressed = True, testnet = False) -> str:
+        secret_bytes = self.secret.to_bytes(32, "big")
+        if testnet:
+            prefix = b"\xef"
+        else:
+            prefix = b"\x80"
+        if compressed:
+            suffix = b"\x01"
+        else:
+            suffix = b""
+        return encode_base58_checksum(prefix + secret_bytes + suffix)
